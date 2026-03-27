@@ -148,6 +148,9 @@ jobs:
     needs: [check-version, build]
     if: needs.check-version.outputs.should_build == 'true'
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     permissions:
       contents: write
       pages: write
@@ -192,18 +195,16 @@ jobs:
           sed -i "s|<version>.*</version>|<version>${VERSION_STRIPPED}</version>|" repo.xml
           sed -i "s|<cachechk>.*</cachechk>|<cachechk>${TIMESTAMP}</cachechk>|" repo.xml
 
-      - name: Deploy repo.xml to GitHub Pages
+      - name: Prepare Pages artifact
         run: |
           mkdir -p _pages
           cp repo.xml _pages/
-          cd _pages
-          git init
-          git checkout -b gh-pages
-          git add repo.xml
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git commit -m "Update repo.xml for $VERSION"
-          git push --force "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" gh-pages
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ needs.check-version.outputs.version }}
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: _pages
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
