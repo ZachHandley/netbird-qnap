@@ -94,7 +94,18 @@ You can also force a rebuild at any time via `workflow_dispatch`, optionally spe
 - SSH access to the NAS (for initial setup) or the QNAP web UI
 - A Netbird account with a setup key (from [app.netbird.io](https://app.netbird.io/) or your self-hosted management server)
 
-### Install the QPKG
+### Option A: Add the app repository (recommended, auto-updates)
+
+1. In the QNAP web UI, open **App Center**
+2. Click the gear icon (upper right) and go to **App Repository**
+3. Add this URL:
+   ```
+   https://zachhandley.github.io/netbird-qnap/repo.xml
+   ```
+4. Netbird VPN will appear in your App Center -- install it from there
+5. Future updates are automatic through the App Center
+
+### Option B: Manual install
 
 1. Download the latest `.qpkg` file from the [Releases](../../releases) page.
 2. In the QNAP web UI, open **App Center** and click **Install Manually** (the gear icon in the upper right).

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plugins>
+  <cachechk>0</cachechk>
+  <item>
+    <name>Netbird VPN</name>
+    <internalName>netbird</internalName>
+    <category>Essentials</category>
+    <type>Networking</type>
+    <icon100>https://raw.githubusercontent.com/ZachHandley/netbird-qnap/main/qpkg/icons/netbird_100.png</icon100>
+    <icon80>https://raw.githubusercontent.com/ZachHandley/netbird-qnap/main/qpkg/icons/netbird_80.png</icon80>
+    <description>WireGuard-based mesh VPN client for Netbird networks. Connects your QNAP NAS to your Netbird mesh network with full kernel-level WireGuard, firewall, and route management.</description>
+    <developer>ZachHandley</developer>
+    <developerLink>https://github.com/ZachHandley/netbird-qnap</developerLink>
+    <fwVersion>4.3.0</fwVersion>
+    <version>0.0.0</version>
+    <platform>
+      <platformID>TS-NASX86</platformID>
+      <location>https://github.com/ZachHandley/netbird-qnap/releases/latest/download/netbird.qpkg</location>
+    </platform>
+    <platform>
+      <platformID>TS-X28A</platformID>
+      <location>https://github.com/ZachHandley/netbird-qnap/releases/latest/download/netbird.qpkg</location>
+    </platform>
+    <platform>
+      <platformID>TS-X41</platformID>
+      <location>https://github.com/ZachHandley/netbird-qnap/releases/latest/download/netbird.qpkg</location>
+    </platform>
+    <platform>
+      <platformID>TS-X73</platformID>
+      <location>https://github.com/ZachHandley/netbird-qnap/releases/latest/download/netbird.qpkg</location>
+    </platform>
+    <snapshot>https://raw.githubusercontent.com/ZachHandley/netbird-qnap/main/qpkg/icons/netbird_100.png</snapshot>
+    <forumLink>https://github.com/ZachHandley/netbird-qnap/issues</forumLink>
+  </item>
+</plugins>

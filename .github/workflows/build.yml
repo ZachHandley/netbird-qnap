@@ -150,6 +150,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pages: write
+      id-token: write
     steps:
       - uses: actions/checkout@v6
 
@@ -166,20 +168,42 @@ jobs:
         run: |
           gh release create "$VERSION" \
             --title "Netbird QPKG $VERSION" \
-            --notes "$(cat <<EOF
+            --notes "$(cat <<'EOF'
           Netbird VPN client packaged as QPKG for QNAP NAS (x86_64).
 
-          Based on upstream [netbird $VERSION](https://github.com/netbirdio/netbird/releases/tag/$VERSION).
+          ## Auto-update repository
+          Add this URL in QNAP App Center → App Repository:
+          `https://zachhandley.github.io/netbird-qnap/repo.xml`
 
-          ## Installation
-          1. Download the \`.qpkg\` file below
+          ## Manual installation
+          1. Download the `.qpkg` file below
           2. In QNAP App Center, click **Install Manually**
           3. Browse to the downloaded file and install
-
-          ## Verify checksum
-          \`\`\`bash
-          sha256sum -c *.sha256
-          \`\`\`
           EOF
           )" \
             dist/*
+
+      - name: Update repo.xml with new version
+        env:
+          VERSION: ${{ needs.check-version.outputs.version }}
+        run: |
+          VERSION_STRIPPED="${VERSION#v}"
+          TIMESTAMP=$(date +%s)
+          sed -i "s|<version>.*</version>|<version>${VERSION_STRIPPED}</version>|" repo.xml
+          sed -i "s|<cachechk>.*</cachechk>|<cachechk>${TIMESTAMP}</cachechk>|" repo.xml
+
+      - name: Deploy repo.xml to GitHub Pages
+        run: |
+          mkdir -p _pages
+          cp repo.xml _pages/
+          cd _pages
+          git init
+          git checkout -b gh-pages
+          git add repo.xml
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -m "Update repo.xml for $VERSION"
+          git push --force "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" gh-pages
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.check-version.outputs.version }}
