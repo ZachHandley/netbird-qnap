@@ -8,6 +8,7 @@ qpkg/x86_64/netbird
 # QPKG build output
 *.qpkg
 qpkg/build/
+qpkg/QDK
 
 # Generated icons (built in CI from upstream logo)
 qpkg/icons/*.png

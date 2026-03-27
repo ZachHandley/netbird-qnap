@@ -116,14 +116,8 @@ jobs:
             echo "Warning: upstream logo not found, icons will be missing"
           fi
 
-      - name: Install QDK and build QPKG
-        run: |
-          sudo apt-get install -y rsync bsdmainutils
-          git clone --depth 1 https://github.com/qnap-dev/QDK.git /tmp/qdk
-          make -C /tmp/qdk/src
-          sudo cp /tmp/qdk/src/bin/qpkg_encrypt /usr/local/bin/
-          cd qpkg
-          /tmp/qdk/shared/bin/qbuild --root .
+      - name: Build QPKG
+        run: ./build-qpkg.sh
 
       - name: Locate built QPKG
         id: qpkg
