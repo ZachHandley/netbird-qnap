@@ -18,6 +18,10 @@ on:
         type: boolean
         default: false
 
+concurrency:
+  group: build-qpkg
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -169,6 +173,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ needs.check-version.outputs.version }}
         run: |
+          gh release delete "$VERSION" --yes --cleanup-tag 2>/dev/null || true
           gh release create "$VERSION" \
             --title "Netbird QPKG $VERSION" \
             --notes "$(cat <<'EOF'
@@ -189,11 +194,14 @@ jobs:
       - name: Update repo.xml with new version
         env:
           VERSION: ${{ needs.check-version.outputs.version }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION_STRIPPED="${VERSION#v}"
           TIMESTAMP=$(date +%s)
+          QPKG_URL=$(gh release view "$VERSION" --repo "${{ github.repository }}" --json assets --jq '.assets[] | select(.name | endswith(".qpkg")) | .url')
           sed -i "s|<version>.*</version>|<version>${VERSION_STRIPPED}</version>|" repo.xml
           sed -i "s|<cachechk>.*</cachechk>|<cachechk>${TIMESTAMP}</cachechk>|" repo.xml
+          sed -i "s|__QPKG_URL__|${QPKG_URL}|g" repo.xml
 
       - name: Prepare Pages artifact
         run: |
