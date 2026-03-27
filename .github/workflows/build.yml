@@ -134,10 +134,15 @@ jobs:
           echo "file=$QPKG_FILE" >> "$GITHUB_OUTPUT"
           echo "name=$(basename "$QPKG_FILE")" >> "$GITHUB_OUTPUT"
 
-      - name: Generate checksum
+      - name: Create stable-named copy for latest download URL
+        run: |
+          cp "${{ steps.qpkg.outputs.file }}" "$(dirname "${{ steps.qpkg.outputs.file }}")/netbird_x86_64.qpkg"
+
+      - name: Generate checksums
         run: |
           cd "$(dirname "${{ steps.qpkg.outputs.file }}")"
           sha256sum "$(basename "${{ steps.qpkg.outputs.file }}")" > "${{ steps.qpkg.outputs.name }}.sha256"
+          sha256sum netbird_x86_64.qpkg > netbird_x86_64.qpkg.sha256
 
       - name: Upload QPKG artifact
         uses: actions/upload-artifact@v5
@@ -146,6 +151,8 @@ jobs:
           path: |
             ${{ steps.qpkg.outputs.file }}
             ${{ steps.qpkg.outputs.file }}.sha256
+            ${{ steps.qpkg.outputs.file }}/../netbird_x86_64.qpkg
+            ${{ steps.qpkg.outputs.file }}/../netbird_x86_64.qpkg.sha256
           retention-days: 30
 
   release:
@@ -194,14 +201,11 @@ jobs:
       - name: Update repo.xml with new version
         env:
           VERSION: ${{ needs.check-version.outputs.version }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION_STRIPPED="${VERSION#v}"
           TIMESTAMP=$(date +%s)
-          QPKG_URL=$(gh release view "$VERSION" --repo "${{ github.repository }}" --json assets --jq '.assets[] | select(.name | endswith(".qpkg")) | .url')
           sed -i "s|<version>.*</version>|<version>${VERSION_STRIPPED}</version>|" repo.xml
           sed -i "s|<cachechk>.*</cachechk>|<cachechk>${TIMESTAMP}</cachechk>|" repo.xml
-          sed -i "s|__QPKG_URL__|${QPKG_URL}|g" repo.xml
 
       - name: Prepare Pages artifact
         run: |

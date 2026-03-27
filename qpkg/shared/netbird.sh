@@ -53,8 +53,8 @@ start_service() {
     mkdir -p /etc/netbird 2>/dev/null
     ln -sf "$NETBIRD_BIN" /usr/local/bin/netbird 2>/dev/null
 
-    # Expose web UI through QTS web server
-    ln -sf "${QPKG_ROOT}/web" /home/Qhttpd/Web/netbird 2>/dev/null
+    # Start web UI server
+    busybox httpd -p 8090 -h "${QPKG_ROOT}/web" -c "${QPKG_ROOT}/web/httpd.conf"
 
     echo "Starting $QPKG_NAME..."
 
@@ -118,9 +118,11 @@ stop_service() {
         rm -f "$PIDF"
     fi
 
+    # Stop web UI server
+    kill $(pidof "busybox httpd") 2>/dev/null
+
     killall netbird 2>/dev/null
     rm -f /usr/local/bin/netbird 2>/dev/null
-    rm -f /home/Qhttpd/Web/netbird 2>/dev/null
 
     /sbin/log_tool -t2 -uSystem -p127.0.0.1 -mlocalhost -a "Netbird VPN service stopped"
     echo "$QPKG_NAME stopped."

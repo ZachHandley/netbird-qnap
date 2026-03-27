@@ -15,19 +15,19 @@
     <version>0.0.0</version>
     <platform>
       <platformID>TS-NASX86</platformID>
-      <location>__QPKG_URL__</location>
+      <location>https://github.com/ZachHandley/netbird-qnap/releases/latest/download/netbird_x86_64.qpkg</location>
     </platform>
     <platform>
       <platformID>TS-X28A</platformID>
-      <location>__QPKG_URL__</location>
+      <location>https://github.com/ZachHandley/netbird-qnap/releases/latest/download/netbird_x86_64.qpkg</location>
     </platform>
     <platform>
       <platformID>TS-X41</platformID>
-      <location>__QPKG_URL__</location>
+      <location>https://github.com/ZachHandley/netbird-qnap/releases/latest/download/netbird_x86_64.qpkg</location>
     </platform>
     <platform>
       <platformID>TS-X73</platformID>
-      <location>__QPKG_URL__</location>
+      <location>https://github.com/ZachHandley/netbird-qnap/releases/latest/download/netbird_x86_64.qpkg</location>
     </platform>
     <snapshot>https://raw.githubusercontent.com/ZachHandley/netbird-qnap/main/qpkg/icons/netbird_100.png</snapshot>
     <forumLink>https://github.com/ZachHandley/netbird-qnap/issues</forumLink>
