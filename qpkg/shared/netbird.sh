@@ -54,7 +54,7 @@ start_service() {
     ln -sf "$NETBIRD_BIN" /usr/local/bin/netbird 2>/dev/null
 
     # Start web UI server
-    busybox httpd -p 8090 -h "${QPKG_ROOT}/web" -c "${QPKG_ROOT}/web/httpd.conf"
+    busybox httpd -p 8090 -h "${QPKG_ROOT}/web"
 
     echo "Starting $QPKG_NAME..."
 
