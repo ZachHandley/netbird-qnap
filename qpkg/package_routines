@@ -1,0 +1,40 @@
+######################################################################
+# Netbird VPN QPKG - package install/remove routines
+######################################################################
+
+pkg_pre_install() {
+    true
+}
+
+pkg_post_install() {
+    CONF=/etc/config/qpkg.conf
+    QPKG_ROOT=$(/sbin/getcfg $QPKG_NAME Install_Path -f ${CONF})
+
+    chmod +x "${QPKG_ROOT}/netbird"
+    chmod +x "${QPKG_ROOT}/netbird.sh"
+
+    # Preserve user config across upgrades
+    if [ ! -f "${QPKG_ROOT}/netbird.conf" ] || [ ! -s "${QPKG_ROOT}/netbird.conf" ]; then
+        if [ -f "${QPKG_ROOT}/netbird.conf.default" ]; then
+            cp "${QPKG_ROOT}/netbird.conf.default" "${QPKG_ROOT}/netbird.conf"
+        fi
+    fi
+
+    mkdir -p /etc/netbird 2>/dev/null
+    /sbin/log_tool -t2 -uSystem -p127.0.0.1 -mlocalhost -a "Netbird VPN QPKG installed"
+}
+
+PKG_PRE_REMOVE="{
+    CONF=/etc/config/qpkg.conf
+    QPKG_ROOT=\$(/sbin/getcfg netbird Install_Path -f \${CONF})
+    if [ -x \"\${QPKG_ROOT}/netbird.sh\" ]; then
+        \${QPKG_ROOT}/netbird.sh stop 2>/dev/null
+    fi
+}"
+
+PKG_POST_REMOVE="{
+    rm -f /usr/local/bin/netbird 2>/dev/null
+    rm -f /var/run/netbird.pid 2>/dev/null
+    rm -f /var/run/netbird.sock 2>/dev/null
+    /sbin/log_tool -t2 -uSystem -p127.0.0.1 -mlocalhost -a \"Netbird VPN QPKG removed\"
+}"

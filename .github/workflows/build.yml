@@ -1,0 +1,187 @@
+name: Build QPKG
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    # Check for new upstream releases daily at 06:00 UTC
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Upstream netbird version to build (e.g., v0.67.0). Leave empty for latest."
+        required: false
+        type: string
+      force:
+        description: "Force rebuild even if version has not changed"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      should_build: ${{ steps.version.outputs.should_build }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine target version
+        id: version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FORCE: ${{ inputs.force || 'false' }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [ -n "$INPUT_VERSION" ]; then
+            VERSION="$INPUT_VERSION"
+          else
+            VERSION=$(curl -s https://api.github.com/repos/netbirdio/netbird/releases/latest | jq -r '.tag_name')
+          fi
+
+          echo "Upstream version: $VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          EXISTING=$(gh release view "$VERSION" --json tagName --jq '.tagName' 2>/dev/null || echo "")
+
+          if [ "$FORCE" = "true" ] || [ -z "$EXISTING" ]; then
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            echo "Will build version $VERSION"
+          else
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+            echo "Version $VERSION already released, skipping"
+          fi
+
+  build:
+    needs: check-version
+    if: needs.check-version.outputs.should_build == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Clone upstream netbird source
+        run: |
+          git clone --depth 1 --branch ${{ needs.check-version.outputs.version }} \
+            https://github.com/netbirdio/netbird.git src
+
+      - name: Detect Go version from upstream
+        id: goversion
+        run: |
+          GO_VERSION=$(grep '^go ' src/go.mod | awk '{print $2}')
+          echo "version=$GO_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Upstream requires Go $GO_VERSION"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ steps.goversion.outputs.version }}
+          cache: false
+
+      - name: Build static binary
+        run: |
+          cd src
+          VERSION="${{ needs.check-version.outputs.version }}"
+          VERSION_STRIPPED="${VERSION#v}"
+
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+            go build \
+              -ldflags "-s -w -X github.com/netbirdio/netbird/version.version=${VERSION_STRIPPED}" \
+              -o ../qpkg/x86_64/netbird \
+              ./client/
+
+      - name: Verify binary
+        run: |
+          file qpkg/x86_64/netbird
+          ls -lh qpkg/x86_64/netbird
+
+      - name: Update QPKG version
+        run: |
+          VERSION="${{ needs.check-version.outputs.version }}"
+          VERSION_STRIPPED="${VERSION#v}"
+          sed -i "s/^QPKG_VER=.*/QPKG_VER=\"${VERSION_STRIPPED}\"/" qpkg/qpkg.cfg
+
+      - name: Generate icons from upstream logo
+        run: |
+          sudo apt-get install -y imagemagick
+          if [ -f src/docs/media/logo.png ]; then
+            convert src/docs/media/logo.png -resize 80x80 qpkg/icons/netbird_80.png
+            convert src/docs/media/logo.png -resize 64x64 -colorspace Gray qpkg/icons/netbird_gray.png
+          else
+            echo "Warning: upstream logo not found, icons will be missing"
+          fi
+
+      - name: Install QDK and build QPKG
+        run: |
+          sudo apt-get install -y fakeroot rsync pv bsdmainutils
+          git clone --depth 1 https://github.com/qnap-dev/QDK.git /tmp/qdk
+          cd qpkg
+          /tmp/qdk/bin/qbuild --root .
+
+      - name: Locate built QPKG
+        id: qpkg
+        run: |
+          QPKG_FILE=$(find qpkg/build -name "*.qpkg" -type f | head -1)
+          if [ -z "$QPKG_FILE" ]; then
+            echo "Error: No .qpkg file found"
+            exit 1
+          fi
+          echo "file=$QPKG_FILE" >> "$GITHUB_OUTPUT"
+          echo "name=$(basename "$QPKG_FILE")" >> "$GITHUB_OUTPUT"
+
+      - name: Generate checksum
+        run: |
+          cd "$(dirname "${{ steps.qpkg.outputs.file }}")"
+          sha256sum "$(basename "${{ steps.qpkg.outputs.file }}")" > "${{ steps.qpkg.outputs.name }}.sha256"
+
+      - name: Upload QPKG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: netbird-qpkg-${{ needs.check-version.outputs.version }}
+          path: |
+            ${{ steps.qpkg.outputs.file }}
+            ${{ steps.qpkg.outputs.file }}.sha256
+          retention-days: 30
+
+  release:
+    needs: [check-version, build]
+    if: needs.check-version.outputs.should_build == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download QPKG artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: netbird-qpkg-${{ needs.check-version.outputs.version }}
+          path: dist/
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.check-version.outputs.version }}
+        run: |
+          gh release create "$VERSION" \
+            --title "Netbird QPKG $VERSION" \
+            --notes "$(cat <<EOF
+          Netbird VPN client packaged as QPKG for QNAP NAS (x86_64).
+
+          Based on upstream [netbird $VERSION](https://github.com/netbirdio/netbird/releases/tag/$VERSION).
+
+          ## Installation
+          1. Download the \`.qpkg\` file below
+          2. In QNAP App Center, click **Install Manually**
+          3. Browse to the downloaded file and install
+
+          ## Verify checksum
+          \`\`\`bash
+          sha256sum -c *.sha256
+          \`\`\`
+          EOF
+          )" \
+            dist/*

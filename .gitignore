@@ -1,0 +1,17 @@
+# Upstream netbird source (cloned at build time)
+src/
+
+# Compiled binaries
+netbird
+qpkg/x86_64/netbird
+
+# QPKG build output
+*.qpkg
+qpkg/build/
+
+# Generated icons (built in CI from upstream logo)
+qpkg/icons/*.png
+
+# OS artifacts
+.DS_Store
+Thumbs.db
