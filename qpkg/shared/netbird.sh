@@ -53,6 +53,9 @@ start_service() {
     mkdir -p /etc/netbird 2>/dev/null
     ln -sf "$NETBIRD_BIN" /usr/local/bin/netbird 2>/dev/null
 
+    # Expose web UI through QTS web server
+    ln -sf "${QPKG_ROOT}/web" /home/Qhttpd/Web/netbird 2>/dev/null
+
     echo "Starting $QPKG_NAME..."
 
     # Start the netbird daemon (creates gRPC socket for netbird up/down/status)
@@ -117,6 +120,7 @@ stop_service() {
 
     killall netbird 2>/dev/null
     rm -f /usr/local/bin/netbird 2>/dev/null
+    rm -f /home/Qhttpd/Web/netbird 2>/dev/null
 
     /sbin/log_tool -t2 -uSystem -p127.0.0.1 -mlocalhost -a "Netbird VPN service stopped"
     echo "$QPKG_NAME stopped."

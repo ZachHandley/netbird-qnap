@@ -12,6 +12,7 @@ pkg_post_install() {
 
     chmod +x "${QPKG_ROOT}/netbird"
     chmod +x "${QPKG_ROOT}/netbird.sh"
+    chmod +x "${QPKG_ROOT}/web/cgi-bin/netbird-api.cgi" 2>/dev/null
 
     # Preserve user config across upgrades
     if [ ! -f "${QPKG_ROOT}/netbird.conf" ] || [ ! -s "${QPKG_ROOT}/netbird.conf" ]; then
@@ -34,6 +35,7 @@ PKG_PRE_REMOVE="{
 
 PKG_POST_REMOVE="{
     rm -f /usr/local/bin/netbird 2>/dev/null
+    rm -f /home/Qhttpd/Web/netbird 2>/dev/null
     rm -f /var/run/netbird.pid 2>/dev/null
     rm -f /var/run/netbird.sock 2>/dev/null
     /sbin/log_tool -t2 -uSystem -p127.0.0.1 -mlocalhost -a \"Netbird VPN QPKG removed\"
