@@ -83,6 +83,7 @@ jobs:
 
       - name: Build static binary
         run: |
+          mkdir -p qpkg/x86_64
           cd src
           VERSION="${{ needs.check-version.outputs.version }}"
           VERSION_STRIPPED="${VERSION#v}"
@@ -107,6 +108,7 @@ jobs:
       - name: Generate icons from upstream logo
         run: |
           sudo apt-get install -y imagemagick
+          mkdir -p qpkg/icons
           if [ -f src/docs/media/logo.png ]; then
             convert src/docs/media/logo.png -resize 80x80 qpkg/icons/netbird_80.png
             convert src/docs/media/logo.png -resize 64x64 -colorspace Gray qpkg/icons/netbird_gray.png
