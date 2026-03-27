@@ -148,11 +148,7 @@ jobs:
         uses: actions/upload-artifact@v5
         with:
           name: netbird-qpkg-${{ needs.check-version.outputs.version }}
-          path: |
-            ${{ steps.qpkg.outputs.file }}
-            ${{ steps.qpkg.outputs.file }}.sha256
-            ${{ steps.qpkg.outputs.file }}/../netbird_x86_64.qpkg
-            ${{ steps.qpkg.outputs.file }}/../netbird_x86_64.qpkg.sha256
+          path: qpkg/build/
           retention-days: 30
 
   release:
