@@ -56,22 +56,22 @@ jobs:
 
           if [ -z "$LATEST" ]; then
             RELEASE_TAG="$VERSION"
+          elif [ "$LATEST" = "$VERSION" ]; then
+            RELEASE_TAG="${VERSION}-2"
+          else
+            SUFFIX=$(echo "$LATEST" | sed "s/^${VERSION}-//")
+            NEXT=$((SUFFIX + 1))
+            RELEASE_TAG="${VERSION}-${NEXT}"
+          fi
+
+          # Build if: first release, forced, schedule detects new version, or commit message contains [release]
+          COMMIT_MSG=$(git log -1 --pretty=%B 2>/dev/null || echo "")
+          if [ "$FORCE" = "true" ] || [ -z "$LATEST" ] || echo "$COMMIT_MSG" | grep -qi "\[release\]"; then
             echo "should_build=true" >> "$GITHUB_OUTPUT"
-            echo "First build for $VERSION"
-          elif [ "$FORCE" = "true" ]; then
-            if [ "$LATEST" = "$VERSION" ]; then
-              RELEASE_TAG="${VERSION}-2"
-            else
-              SUFFIX=$(echo "$LATEST" | sed "s/^${VERSION}-//")
-              NEXT=$((SUFFIX + 1))
-              RELEASE_TAG="${VERSION}-${NEXT}"
-            fi
-            echo "should_build=true" >> "$GITHUB_OUTPUT"
-            echo "Forced rebuild: $LATEST -> $RELEASE_TAG"
+            echo "Will build $RELEASE_TAG"
           else
             echo "should_build=false" >> "$GITHUB_OUTPUT"
             echo "Version $VERSION already released as $LATEST, skipping"
-            RELEASE_TAG="$LATEST"
           fi
 
           echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
