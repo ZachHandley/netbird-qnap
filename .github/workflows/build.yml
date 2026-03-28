@@ -30,6 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
+      release_tag: ${{ steps.version.outputs.release_tag }}
       should_build: ${{ steps.version.outputs.should_build }}
     steps:
       - uses: actions/checkout@v6
@@ -50,15 +51,30 @@ jobs:
           echo "Upstream version: $VERSION"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-          EXISTING=$(gh release view "$VERSION" --json tagName --jq '.tagName' 2>/dev/null || echo "")
+          # Find highest existing release for this upstream version
+          LATEST=$(gh release list --json tagName --jq '.[].tagName' 2>/dev/null | grep "^${VERSION}" | sort -V | tail -1 || echo "")
 
-          if [ "$FORCE" = "true" ] || [ -z "$EXISTING" ]; then
+          if [ -z "$LATEST" ]; then
+            RELEASE_TAG="$VERSION"
             echo "should_build=true" >> "$GITHUB_OUTPUT"
-            echo "Will build version $VERSION"
+            echo "First build for $VERSION"
+          elif [ "$FORCE" = "true" ]; then
+            if [ "$LATEST" = "$VERSION" ]; then
+              RELEASE_TAG="${VERSION}-2"
+            else
+              SUFFIX=$(echo "$LATEST" | sed "s/^${VERSION}-//")
+              NEXT=$((SUFFIX + 1))
+              RELEASE_TAG="${VERSION}-${NEXT}"
+            fi
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            echo "Forced rebuild: $LATEST -> $RELEASE_TAG"
           else
             echo "should_build=false" >> "$GITHUB_OUTPUT"
-            echo "Version $VERSION already released, skipping"
+            echo "Version $VERSION already released as $LATEST, skipping"
+            RELEASE_TAG="$LATEST"
           fi
+
+          echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
 
   build:
     needs: check-version
@@ -105,9 +121,10 @@ jobs:
 
       - name: Update QPKG version
         run: |
-          VERSION="${{ needs.check-version.outputs.version }}"
-          VERSION_STRIPPED="${VERSION#v}"
-          sed -i "s/^QPKG_VER=.*/QPKG_VER=\"${VERSION_STRIPPED}\"/" qpkg/qpkg.cfg
+          RELEASE_TAG="${{ needs.check-version.outputs.release_tag }}"
+          # Strip v prefix and convert dashes to dots for QNAP (0.67.1-2 -> 0.67.1.2)
+          QPKG_VER=$(echo "${RELEASE_TAG#v}" | tr '-' '.')
+          sed -i "s/^QPKG_VER=.*/QPKG_VER=\"${QPKG_VER}\"/" qpkg/qpkg.cfg
 
       - name: Generate icons from upstream logo
         run: |
@@ -174,7 +191,7 @@ jobs:
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ needs.check-version.outputs.version }}
+          VERSION: ${{ needs.check-version.outputs.release_tag }}
         run: |
           gh release delete "$VERSION" --yes --cleanup-tag 2>/dev/null || true
           gh release create "$VERSION" \
@@ -196,11 +213,12 @@ jobs:
 
       - name: Update repo.xml with new version
         env:
-          VERSION: ${{ needs.check-version.outputs.version }}
+          RELEASE_TAG: ${{ needs.check-version.outputs.release_tag }}
         run: |
-          VERSION_STRIPPED="${VERSION#v}"
+          # Convert release tag to QNAP version (v0.67.1-2 -> 0.67.1.2)
+          QPKG_VER=$(echo "${RELEASE_TAG#v}" | tr '-' '.')
           TIMESTAMP=$(date +%s)
-          sed -i "s|<version>.*</version>|<version>${VERSION_STRIPPED}</version>|" repo.xml
+          sed -i "s|<version>.*</version>|<version>${QPKG_VER}</version>|" repo.xml
           sed -i "s|<cachechk>.*</cachechk>|<cachechk>${TIMESTAMP}</cachechk>|" repo.xml
 
       - name: Prepare Pages artifact
