@@ -53,9 +53,9 @@ start_service() {
     mkdir -p /etc/netbird 2>/dev/null
     ln -sf "$NETBIRD_BIN" /usr/local/bin/netbird 2>/dev/null
 
-    # Expose web UI through QTS management server
-    ln -sf "${QPKG_ROOT}/web" /home/Qhttpd/Web/netbird
-    ln -sf "${QPKG_ROOT}/web/cgi-bin/netbird-api.cgi" /home/httpd/cgi-bin/netbird-api.cgi
+    # Start web UI server (busybox httpd serves static files + CGI)
+    pkill -f "busybox httpd -p 58090" 2>/dev/null
+    busybox httpd -p 58090 -h "${QPKG_ROOT}/web"
 
     echo "Starting $QPKG_NAME..."
 
@@ -119,9 +119,8 @@ stop_service() {
         rm -f "$PIDF"
     fi
 
-    # Remove web UI symlinks
-    rm -f /home/Qhttpd/Web/netbird
-    rm -f /home/httpd/cgi-bin/netbird-api.cgi
+    # Stop web UI server
+    pkill -f "busybox httpd -p 58090" 2>/dev/null
 
     killall netbird 2>/dev/null
     rm -f /usr/local/bin/netbird 2>/dev/null

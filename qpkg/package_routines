@@ -35,8 +35,7 @@ PKG_PRE_REMOVE="{
 
 PKG_POST_REMOVE="{
     rm -f /usr/local/bin/netbird 2>/dev/null
-    rm -f /home/Qhttpd/Web/netbird 2>/dev/null
-    rm -f /home/httpd/cgi-bin/netbird-api.cgi 2>/dev/null
+    pkill -f 'busybox httpd -p 58090' 2>/dev/null
     rm -f /var/run/netbird.pid 2>/dev/null
     rm -f /var/run/netbird.sock 2>/dev/null
     /sbin/log_tool -t2 -uSystem -p127.0.0.1 -mlocalhost -a \"Netbird VPN QPKG removed\"
