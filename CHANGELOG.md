@@ -407,64 +407,72 @@ apparently did not work.
 
 ---
 
-### 18. (uncommitted) -- fix web UI: add busybox httpd backend for QTS proxy
+### 18. (uncommitted) -- fix web UI: add logging, clean stale config, match QNAP official pattern
 
 **Date:** 2026-03-29
 
-**Web UI approach #5: busybox httpd + QTS proxy (the actual fix)**
+**Web UI approach #5: match QNAP official pattern exactly + add logging + clean stale config**
 
-**Root cause identified:** Per the QDK template documentation, `QPKG_USE_PROXY="1"`
-is for "when the QPKG has its own HTTP service port." It creates Apache `ProxyPass`
-directives forwarding requests to `http://127.0.0.1:<QPKG_WEB_PORT>`. Every prior
-approach that used `QPKG_USE_PROXY="1"` without `QPKG_WEB_PORT` was telling QTS to
-reverse-proxy to nothing -- hence 503 Service Unavailable.
+**Research findings:** Searched GitHub for every working QPKG with a web UI. Found
+that QNAP's own official examples (QDK-Guide breakout, helloWorld) and community
+packages (ZeroTier, Storj, USBRun, RoonServer) ALL use the same pattern:
 
-The symlink-based approach (commits `7fc8e8d`, `643699c`, `a99c5e9`) was the wrong
-model entirely. Symlinks into `/home/Qhttpd/Web/` are for the NON-proxy model
-(static file serving by QTS's built-in thttpd). `QPKG_USE_PROXY` and symlinks are
-mutually exclusive approaches that were being combined, causing the conflict.
+```
+QPKG_WEBUI="/name/"
+QPKG_USE_PROXY="1"
+QPKG_DESKTOP_APP="1"
+# NO QPKG_WEB_PORT
+```
 
-**Source:** QDK template at
-`https://github.com/qnap-dev/QDK/blob/master/shared/template/qpkg.cfg` and
-Perplexity deep research on QNAP QPKG web UI configuration confirming that
-`QPKG_USE_PROXY` requires a backend HTTP service listening on `QPKG_WEB_PORT`.
+With a symlink: `ln -s $QPKG_ROOT/web /home/Qhttpd/Web/<name>`
+
+Source: https://github.com/qnap-dev/QDK-Guide (breakout.sh, QNAP_HelloWorld.sh)
+
+This is the SAME pattern we had at commit `a99c5e9`. The config was correct. The 503
+was likely caused by stale `Web_Port` entries in `/etc/config/qpkg.conf` from previous
+installs that used `QPKG_WEB_PORT="8090"`. QTS persists package settings and old
+values can poison the proxy routing.
+
+The busybox httpd approach (attempted earlier in this uncommitted change) was wrong --
+the Perplexity research was misleading. `QPKG_USE_PROXY="1"` with symlinks (no
+`QPKG_WEB_PORT`) IS the correct pattern per QNAP's own examples.
 
 **Changes to qpkg.cfg:**
-- Added `QPKG_WEB_PORT="58090"` -- tells QTS what port to proxy to.
-- Kept `QPKG_USE_PROXY="1"` and `QPKG_DESKTOP_APP="1"`.
-- Updated comment to reference busybox httpd.
+- Removed `QPKG_WEB_PORT="58090"` (was added incorrectly).
+- Config now matches QNAP official examples exactly.
 
 **Changes to netbird.sh:**
-- Replaced symlinks (`/home/Qhttpd/Web/netbird`, `/home/httpd/cgi-bin/...`) with:
-  `pkill -f "busybox httpd -p 58090"` (kill stale instance)
-  `busybox httpd -p 58090 -h "${QPKG_ROOT}/web"` (start httpd)
-- Stop now does `pkill -f "busybox httpd -p 58090"` instead of removing symlinks.
+- Added comprehensive logging to `/var/log/netbird-service.log`:
+  - Logs every startup step with timestamps
+  - Verifies symlinks were created successfully
+  - Verifies web files exist at the expected paths
+  - Dumps qpkg.conf entries (Enable, Web_Port, WebUI, Proxy_Path, Use_Proxy)
+- Reverted to symlink-based web UI (matching official examples).
+- Added stale config cleanup: clears `Web_Port` from qpkg.conf on start.
+- Kills leftover busybox httpd from previous versions.
+- Fixed `log_tool -t2` to `log_tool -t1` (type 2 = error notifications in QNAP,
+  type 1 = informational).
 
 **Changes to index.html:**
-- Changed API URL from `'/cgi-bin/netbird-api.cgi'` (absolute) to
-  `'cgi-bin/netbird-api.cgi'` (relative). When the page loads at `/netbird/`, the
-  browser resolves this to `/netbird/cgi-bin/netbird-api.cgi`, which QTS proxies
-  to `http://127.0.0.1:58090/cgi-bin/netbird-api.cgi`, which busybox httpd
-  handles as CGI.
+- Reverted API URL to `'/cgi-bin/netbird-api.cgi'` (absolute path, since CGI is
+  symlinked to QTS's cgi-bin directory, not served under /netbird/).
 
 **Changes to package_routines:**
-- Replaced symlink cleanup in `PKG_POST_REMOVE` with `pkill -f 'busybox httpd -p 58090'`.
-
-**Why busybox httpd:**
-- Already built into QTS on every QNAP device (QTS is BusyBox-based).
-- Serves static files and executes CGI scripts from `cgi-bin/` by default -- no
-  config file needed (the httpd.conf from commit `f49f39e` was unnecessary and
-  its removal in `82d584d` was a red herring).
-- Zero additional disk space, negligible memory, instant startup.
-- No external dependencies (unlike Node.js, Python, etc.).
+- Added stale Web_Port cleanup and busybox httpd kill to `pkg_post_install`.
+- Reverted `PKG_POST_REMOVE` to clean up symlinks.
+- Fixed `log_tool -t2` to `log_tool -t1` in all hooks.
 
 **Request flow:**
 ```
 User clicks "Open" in QTS App Center
   -> QTS desktop opens iframe to /netbird/ (QPKG_DESKTOP_APP="1")
-  -> QTS proxy forwards /netbird/* to http://127.0.0.1:58090/* (QPKG_USE_PROXY="1", QPKG_WEB_PORT="58090")
-  -> busybox httpd serves index.html (static) or executes cgi-bin/netbird-api.cgi (CGI)
+  -> QTS Apache serves from /home/Qhttpd/Web/netbird (symlink to $QPKG_ROOT/web)
+  -> index.html loads
+  -> JS calls /cgi-bin/netbird-api.cgi (symlink to $QPKG_ROOT/web/cgi-bin/netbird-api.cgi)
 ```
+
+**If still 503 after this change:** check `/var/log/netbird-service.log` for the
+exact qpkg.conf state and symlink status. The log will show exactly what went wrong.
 
 ---
 
@@ -472,24 +480,23 @@ User clicks "Open" in QTS App Center
 
 | # | Commit | Approach | QPKG_WEBUI | WEB_PORT | USE_PROXY | DESKTOP_APP | Served By | Result |
 |---|--------|----------|------------|----------|-----------|-------------|-----------|--------|
-| 1 | `cecdaed` | QTS web root symlink | `/netbird/` | -- | -- | -- | QTS thttpd via symlink | Unknown -- CGI unlikely to work from symlinked dirs |
+| 1 | `cecdaed` | QTS web root symlink | `/netbird/` | -- | -- | -- | QTS Apache via symlink | Unknown -- no proxy, no desktop app |
 | 2 | `f49f39e` | busybox httpd + httpd.conf | `/` | `8090` | -- | -- | busybox httpd | httpd.conf format probably invalid |
-| 3 | `82d584d` | busybox httpd, no config | `/` | `8090` | -- | -- | busybox httpd | HTML loads, CGI broken without config (wrong -- CGI works by default) |
-| 4 | `f1254bb` | busybox + desktop + proxy | `/` | `8090` | `1` | `1` | busybox proxied by QTS | Would have worked but inherited broken CGI assumption |
-| 5 | `7fc8e8d` | QTS server + dual symlinks | `/netbird/` | -- | `1` | `1` | QTS thttpd via symlinks | 503 -- proxy enabled but no backend port/server |
-| 6 | `643699c` | QTS server, no proxy | `/netbird/` | -- | -- | `1` | QTS thttpd via symlinks | Broke desktop app embedding |
-| 7 | `a99c5e9` | QTS server + proxy | `/netbird/` | -- | `1` | `1` | QTS thttpd via symlinks | 503 -- same as #5, proxy still has no backend |
-| 8 | (this) | busybox httpd + proxy | `/netbird/` | `58090` | `1` | `1` | busybox httpd proxied by QTS | Should work -- proxy has a real backend |
+| 3 | `82d584d` | busybox httpd, no config | `/` | `8090` | -- | -- | busybox httpd | HTML loads, CGI unknown |
+| 4 | `f1254bb` | busybox + desktop + proxy | `/` | `8090` | `1` | `1` | busybox proxied by QTS | Unknown -- not tested long enough |
+| 5 | `7fc8e8d` | QTS server + dual symlinks | `/netbird/` | -- | `1` | `1` | QTS Apache via symlinks | 503 -- possibly stale Web_Port from #4 |
+| 6 | `643699c` | QTS server, no proxy | `/netbird/` | -- | -- | `1` | QTS Apache via symlinks | 503 -- possibly stale Web_Port from #4 |
+| 7 | `a99c5e9` | QTS server + proxy | `/netbird/` | -- | `1` | `1` | QTS Apache via symlinks | 503 -- possibly stale Web_Port from #4 |
+| 8 | (this) | Official pattern + logging | `/netbird/` | -- | `1` | `1` | QTS Apache via symlinks | Matches QNAP official examples; cleans stale config; has logging |
 
 **Key lessons learned:**
-- `QPKG_USE_PROXY="1"` requires `QPKG_WEB_PORT` and a running HTTP server. It is
-  NOT compatible with symlinks into `/home/Qhttpd/Web/`.
-- Busybox httpd executes CGI from `cgi-bin/` by default. No httpd.conf needed.
-- The httpd.conf removal (commit `82d584d`) was the wrong fix for the wrong problem.
-  The real issue in commit `f49f39e` was probably the httpd.conf syntax, not CGI
-  support itself.
-- API URLs in the HTML must be relative (not absolute) when served behind a proxy
-  that rewrites the path prefix.
+- `QPKG_USE_PROXY="1"` + symlinks + NO `QPKG_WEB_PORT` IS the official QNAP
+  pattern. Every QNAP example (breakout, helloWorld) and community QPKG
+  (ZeroTier, Storj, USBRun) uses this exact combination.
+- Stale `Web_Port` entries in `/etc/config/qpkg.conf` from previous installs can
+  poison the proxy routing, causing 503 even with correct qpkg.cfg.
+- `log_tool -t2` creates ERROR notifications in QNAP. Use `-t1` for informational.
+- Always add logging. Flying blind across 7 iterations wasted time.
 
 ---
 
@@ -502,13 +509,22 @@ User clicks "Open" in QTS App Center
 - Service script (`netbird.sh`) starts daemon, waits for gRPC socket, brings tunnel up.
 - Configuration in `netbird.conf` (shell variables).
 
-**Web UI:**
-- `qpkg.cfg`: `QPKG_WEBUI="/netbird/"`, `QPKG_WEB_PORT="58090"`,
-  `QPKG_USE_PROXY="1"`, `QPKG_DESKTOP_APP="1"` (700x500).
-- On start: `busybox httpd -p 58090 -h "${QPKG_ROOT}/web"` serves the web UI.
-- `index.html`: single-page settings form, calls `cgi-bin/netbird-api.cgi` (relative URL).
+**Web UI (matching QNAP official pattern):**
+- `qpkg.cfg`: `QPKG_WEBUI="/netbird/"`, `QPKG_USE_PROXY="1"`,
+  `QPKG_DESKTOP_APP="1"` (700x500). NO `QPKG_WEB_PORT`.
+- On start: creates symlinks:
+  - `${QPKG_ROOT}/web` -> `/home/Qhttpd/Web/netbird` (static files)
+  - `${QPKG_ROOT}/web/cgi-bin/netbird-api.cgi` -> `/home/httpd/cgi-bin/netbird-api.cgi` (CGI)
+- Cleans stale `Web_Port` from qpkg.conf and kills leftover busybox httpd.
+- `index.html`: single-page settings form, calls `/cgi-bin/netbird-api.cgi` (absolute).
 - `netbird-api.cgi`: shell CGI script for load/save/status/restart.
-- On stop/remove: `pkill -f "busybox httpd -p 58090"`.
+- On stop/remove: removes symlinks.
+
+**Logging:**
+- Service log: `/var/log/netbird-service.log` (startup steps, symlink verification,
+  qpkg.conf state, errors).
+- Netbird log: `/var/log/netbird.log` (daemon and VPN logs).
+- QNAP notifications: use `log_tool -t1` (informational, not error).
 
 **CI/CD:**
 - Triggers: push to main, daily cron, manual dispatch, `[release]` in commit message.
