@@ -74,12 +74,21 @@ start_service() {
     pkill -f "busybox httpd -p 58090" 2>/dev/null
     pkill -f "busybox httpd -p 8090" 2>/dev/null
 
-    # Create symlinks (same approach as QNAP's breakout, helloWorld, ZeroTier QPKGs)
-    ln -sf "${QPKG_ROOT}/web" /home/Qhttpd/Web/netbird
-    if [ -L /home/Qhttpd/Web/netbird ]; then
-        log "Web symlink OK: /home/Qhttpd/Web/netbird -> $(readlink /home/Qhttpd/Web/netbird)"
+    # Resolve QTS web root dynamically (same approach as ZeroTier QPKG)
+    _web_share=$(/sbin/getcfg SHARE_DEF defWeb -d Qweb -f /etc/config/def_share.info 2>/dev/null)
+    WEB_ROOT="/share/${_web_share}"
+    if [ ! -d "$WEB_ROOT" ]; then
+        # Fallback to hardcoded path used by QNAP's own QDK examples
+        WEB_ROOT="/home/Qhttpd/Web"
+    fi
+    log "Web root: $WEB_ROOT (defWeb=$_web_share)"
+
+    # Create symlinks
+    ln -sf "${QPKG_ROOT}/web" "${WEB_ROOT}/netbird"
+    if [ -L "${WEB_ROOT}/netbird" ]; then
+        log "Web symlink OK: ${WEB_ROOT}/netbird -> $(readlink "${WEB_ROOT}/netbird")"
     else
-        log "ERROR: Failed to create web symlink at /home/Qhttpd/Web/netbird"
+        log "ERROR: Failed to create web symlink at ${WEB_ROOT}/netbird"
     fi
 
     ln -sf "${QPKG_ROOT}/web/cgi-bin/netbird-api.cgi" /home/httpd/cgi-bin/netbird-api.cgi
@@ -174,7 +183,9 @@ stop_service() {
     fi
 
     # Remove web UI symlinks
-    rm -f /home/Qhttpd/Web/netbird
+    _web_share=$(/sbin/getcfg SHARE_DEF defWeb -d Qweb -f /etc/config/def_share.info 2>/dev/null)
+    rm -f "/share/${_web_share}/netbird" 2>/dev/null
+    rm -f /home/Qhttpd/Web/netbird 2>/dev/null
     rm -f /home/httpd/cgi-bin/netbird-api.cgi
 
     # Kill any leftover busybox httpd from previous versions

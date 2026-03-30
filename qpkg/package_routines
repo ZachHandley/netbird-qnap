@@ -41,7 +41,9 @@ PKG_PRE_REMOVE="{
 }"
 
 PKG_POST_REMOVE="{
+    _web_share=\$(/sbin/getcfg SHARE_DEF defWeb -d Qweb -f /etc/config/def_share.info 2>/dev/null)
     rm -f /usr/local/bin/netbird 2>/dev/null
+    rm -f \"/share/\${_web_share}/netbird\" 2>/dev/null
     rm -f /home/Qhttpd/Web/netbird 2>/dev/null
     rm -f /home/httpd/cgi-bin/netbird-api.cgi 2>/dev/null
     pkill -f 'busybox httpd -p 58090' 2>/dev/null
