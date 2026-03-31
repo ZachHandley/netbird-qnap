@@ -9,6 +9,7 @@ NETBIRD_BIN="${QPKG_ROOT}/netbird"
 NETBIRD_CONF="${QPKG_ROOT}/netbird.conf"
 PIDF="/var/run/netbird.pid"
 SVCLOG="/var/log/netbird-service.log"
+APACHE_CONF="/etc/default_config/apache-netbird.conf"
 
 export QNAP_QPKG=$QPKG_NAME
 
@@ -32,6 +33,77 @@ export_nb_env() {
     [ -n "$HOSTNAME" ]       && export NB_HOSTNAME="$HOSTNAME"
     [ -n "$LOG_LEVEL" ]      && export NB_LOG_LEVEL="$LOG_LEVEL"
     [ -n "$LOG_FILE" ]       && export NB_LOG_FILE="$LOG_FILE"
+}
+
+setup_webui() {
+    # Apache Alias approach (same as CrashPlan QPKG - works on any QNAP filesystem)
+    cat > "$APACHE_CONF" <<AEOF
+<IfModule alias_module>
+  Alias /netbird "${QPKG_ROOT}/web"
+  <Directory "${QPKG_ROOT}/web">
+    Require all granted
+  </Directory>
+  ProxyPass /netbird !
+</IfModule>
+AEOF
+    log "Created Apache config: $APACHE_CONF"
+
+    # Include in Apache proxy configs and reload
+    for _pf in /etc/config/apache/extra/apache-proxy.conf /etc/default_config/apache/extra/apache-proxy.conf; do
+        if [ -f "$_pf" ]; then
+            if ! grep -q "apache-netbird.conf" "$_pf"; then
+                echo "Include ${APACHE_CONF}" >> "$_pf"
+                log "Added Include to $_pf"
+            else
+                log "Include already in $_pf"
+            fi
+        else
+            log "Apache proxy config not found: $_pf"
+        fi
+    done
+
+    # Reload Apache
+    if [ -x /usr/local/apache/bin/apache_proxy ]; then
+        /usr/local/apache/bin/apache_proxy -k graceful 2>>"$SVCLOG"
+        log "Apache reloaded via apache_proxy"
+    elif [ -x /etc/init.d/thttpd.sh ]; then
+        /etc/init.d/thttpd.sh reload 2>>"$SVCLOG"
+        log "Apache reloaded via thttpd.sh"
+    else
+        log "WARNING: Could not find Apache reload command"
+    fi
+
+    # CGI symlink (this path works - confirmed by service log)
+    ln -sf "${QPKG_ROOT}/web/cgi-bin/netbird-api.cgi" /home/httpd/cgi-bin/netbird-api.cgi
+    if [ -L /home/httpd/cgi-bin/netbird-api.cgi ]; then
+        log "CGI symlink OK"
+    else
+        log "ERROR: Failed to create CGI symlink"
+    fi
+}
+
+teardown_webui() {
+    # Remove Apache config
+    rm -f "$APACHE_CONF"
+
+    # Remove Include lines from Apache proxy configs
+    for _pf in /etc/config/apache/extra/apache-proxy.conf /etc/default_config/apache/extra/apache-proxy.conf; do
+        if [ -f "$_pf" ]; then
+            sed -i '/apache-netbird\.conf/d' "$_pf" 2>/dev/null
+        fi
+    done
+
+    # Reload Apache
+    if [ -x /usr/local/apache/bin/apache_proxy ]; then
+        /usr/local/apache/bin/apache_proxy -k graceful 2>/dev/null
+    elif [ -x /etc/init.d/thttpd.sh ]; then
+        /etc/init.d/thttpd.sh reload 2>/dev/null
+    fi
+
+    # Remove CGI symlink and stale web root symlinks
+    rm -f /home/httpd/cgi-bin/netbird-api.cgi
+    rm -f /home/Qhttpd/Web/netbird 2>/dev/null
+    rm -f "/share/$(/sbin/getcfg SHARE_DEF defWeb -d Qweb -f /etc/config/def_share.info 2>/dev/null)/netbird" 2>/dev/null
 }
 
 start_service() {
@@ -62,63 +134,17 @@ start_service() {
     mkdir -p /etc/netbird 2>/dev/null
     ln -sf "$NETBIRD_BIN" /usr/local/bin/netbird 2>/dev/null
 
-    # --- Web UI setup (symlink pattern, matching QNAP official examples) ---
-    # Clean stale Web_Port from previous installs that used busybox httpd
-    _old_port=$(/sbin/getcfg $QPKG_NAME Web_Port -f $CONF 2>/dev/null)
-    if [ -n "$_old_port" ]; then
-        log "Clearing stale Web_Port=$_old_port from qpkg.conf"
-        /sbin/setcfg $QPKG_NAME Web_Port "" -f $CONF 2>/dev/null
-    fi
-
-    # Kill any leftover busybox httpd from previous versions
+    # Clean stale config from previous versions
     pkill -f "busybox httpd -p 58090" 2>/dev/null
     pkill -f "busybox httpd -p 8090" 2>/dev/null
 
-    # Resolve QTS web root dynamically (same approach as ZeroTier QPKG)
-    _web_share=$(/sbin/getcfg SHARE_DEF defWeb -d Qweb -f /etc/config/def_share.info 2>/dev/null)
-    WEB_ROOT="/share/${_web_share}"
-    if [ ! -d "$WEB_ROOT" ]; then
-        # Fallback to hardcoded path used by QNAP's own QDK examples
-        WEB_ROOT="/home/Qhttpd/Web"
-    fi
-    log "Web root: $WEB_ROOT (defWeb=$_web_share)"
-
-    # Create symlinks
-    ln -sf "${QPKG_ROOT}/web" "${WEB_ROOT}/netbird"
-    if [ -L "${WEB_ROOT}/netbird" ]; then
-        log "Web symlink OK: ${WEB_ROOT}/netbird -> $(readlink "${WEB_ROOT}/netbird")"
-    else
-        log "ERROR: Failed to create web symlink at ${WEB_ROOT}/netbird"
-    fi
-
-    ln -sf "${QPKG_ROOT}/web/cgi-bin/netbird-api.cgi" /home/httpd/cgi-bin/netbird-api.cgi
-    if [ -L /home/httpd/cgi-bin/netbird-api.cgi ]; then
-        log "CGI symlink OK: /home/httpd/cgi-bin/netbird-api.cgi -> $(readlink /home/httpd/cgi-bin/netbird-api.cgi)"
-    else
-        log "ERROR: Failed to create CGI symlink at /home/httpd/cgi-bin/netbird-api.cgi"
-    fi
-
-    # Verify web files exist
-    if [ -f "${QPKG_ROOT}/web/index.html" ]; then
-        log "Web files OK: ${QPKG_ROOT}/web/index.html exists"
-    else
-        log "ERROR: ${QPKG_ROOT}/web/index.html NOT FOUND"
-    fi
-    if [ -f "${QPKG_ROOT}/web/cgi-bin/netbird-api.cgi" ]; then
-        log "CGI script OK: ${QPKG_ROOT}/web/cgi-bin/netbird-api.cgi exists"
-    else
-        log "ERROR: ${QPKG_ROOT}/web/cgi-bin/netbird-api.cgi NOT FOUND"
-    fi
+    # Set up web UI
+    setup_webui
 
     # Log qpkg.conf state for debugging
-    log "qpkg.conf entries:"
-    log "  Enable=$(/sbin/getcfg $QPKG_NAME Enable -f $CONF 2>/dev/null)"
-    log "  Web_Port=$(/sbin/getcfg $QPKG_NAME Web_Port -f $CONF 2>/dev/null)"
-    log "  WebUI=$(/sbin/getcfg $QPKG_NAME WebUI -f $CONF 2>/dev/null)"
-    log "  Proxy_Path=$(/sbin/getcfg $QPKG_NAME Proxy_Path -f $CONF 2>/dev/null)"
-    log "  Use_Proxy=$(/sbin/getcfg $QPKG_NAME Use_Proxy -f $CONF 2>/dev/null)"
+    log "qpkg.conf: WebUI=$(/sbin/getcfg $QPKG_NAME WebUI -f $CONF 2>/dev/null) Web_Port=$(/sbin/getcfg $QPKG_NAME Web_Port -f $CONF 2>/dev/null)"
 
-    # --- Start netbird daemon ---
+    # Start netbird daemon
     log "Starting netbird daemon..."
 
     "$NETBIRD_BIN" service run \
@@ -182,13 +208,8 @@ stop_service() {
         rm -f "$PIDF"
     fi
 
-    # Remove web UI symlinks
-    _web_share=$(/sbin/getcfg SHARE_DEF defWeb -d Qweb -f /etc/config/def_share.info 2>/dev/null)
-    rm -f "/share/${_web_share}/netbird" 2>/dev/null
-    rm -f /home/Qhttpd/Web/netbird 2>/dev/null
-    rm -f /home/httpd/cgi-bin/netbird-api.cgi
+    teardown_webui
 
-    # Kill any leftover busybox httpd from previous versions
     pkill -f "busybox httpd -p 58090" 2>/dev/null
     pkill -f "busybox httpd -p 8090" 2>/dev/null
 

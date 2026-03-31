@@ -14,10 +14,7 @@ pkg_post_install() {
     chmod +x "${QPKG_ROOT}/netbird.sh"
     chmod +x "${QPKG_ROOT}/web/cgi-bin/netbird-api.cgi" 2>/dev/null
 
-    # Clean stale Web_Port from previous installs that used busybox httpd
-    /sbin/setcfg $QPKG_NAME Web_Port "" -f ${CONF} 2>/dev/null
-
-    # Kill any leftover busybox httpd from previous versions
+    # Clean stale config from previous versions
     pkill -f "busybox httpd -p 58090" 2>/dev/null
     pkill -f "busybox httpd -p 8090" 2>/dev/null
 
@@ -41,11 +38,14 @@ PKG_PRE_REMOVE="{
 }"
 
 PKG_POST_REMOVE="{
-    _web_share=\$(/sbin/getcfg SHARE_DEF defWeb -d Qweb -f /etc/config/def_share.info 2>/dev/null)
     rm -f /usr/local/bin/netbird 2>/dev/null
-    rm -f \"/share/\${_web_share}/netbird\" 2>/dev/null
-    rm -f /home/Qhttpd/Web/netbird 2>/dev/null
+    rm -f /etc/default_config/apache-netbird.conf 2>/dev/null
+    for _pf in /etc/config/apache/extra/apache-proxy.conf /etc/default_config/apache/extra/apache-proxy.conf; do
+        [ -f \"\$_pf\" ] && sed -i '/apache-netbird\.conf/d' \"\$_pf\" 2>/dev/null
+    done
+    /usr/local/apache/bin/apache_proxy -k graceful 2>/dev/null
     rm -f /home/httpd/cgi-bin/netbird-api.cgi 2>/dev/null
+    rm -f /home/Qhttpd/Web/netbird 2>/dev/null
     pkill -f 'busybox httpd -p 58090' 2>/dev/null
     pkill -f 'busybox httpd -p 8090' 2>/dev/null
     rm -f /var/run/netbird.pid 2>/dev/null
