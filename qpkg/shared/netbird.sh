@@ -36,44 +36,54 @@ export_nb_env() {
 }
 
 setup_webui() {
-    # Apache Alias approach (same as CrashPlan QPKG - works on any QNAP filesystem)
-    cat > "$APACHE_CONF" <<AEOF
-<IfModule alias_module>
-  Alias /netbird "${QPKG_ROOT}/web"
-  <Directory "${QPKG_ROOT}/web">
-    Require all granted
-  </Directory>
-  ProxyPass /netbird !
-</IfModule>
-AEOF
-    log "Created Apache config: $APACHE_CONF"
+    # Drop-in proxy config (WordPress containerized QPKG pattern)
+    # /etc/container-proxy.d/ is auto-included by QTS Apache
+    _proxy_dir="/etc/container-proxy.d"
+    if [ -d "$_proxy_dir" ]; then
+        log "Using container-proxy.d drop-in"
+    else
+        mkdir -p "$_proxy_dir" 2>/dev/null
+        log "Created $_proxy_dir"
+    fi
 
-    # Include in Apache proxy configs and reload
+    # Alias directive serves files directly from QPKG_ROOT (no symlinks needed)
+    cat > "${_proxy_dir}/netbird.conf" <<AEOF
+Alias /netbird "${QPKG_ROOT}/web"
+<Directory "${QPKG_ROOT}/web">
+  Require all granted
+</Directory>
+ProxyPass /netbird !
+AEOF
+    log "Created ${_proxy_dir}/netbird.conf"
+
+    # Also write the standalone config as fallback
+    cat > "$APACHE_CONF" <<AEOF
+Alias /netbird "${QPKG_ROOT}/web"
+<Directory "${QPKG_ROOT}/web">
+  Require all granted
+</Directory>
+ProxyPass /netbird !
+AEOF
+
+    # Try CrashPlan-style Include into Apache proxy configs
     for _pf in /etc/config/apache/extra/apache-proxy.conf /etc/default_config/apache/extra/apache-proxy.conf; do
-        if [ -f "$_pf" ]; then
-            if ! grep -q "apache-netbird.conf" "$_pf"; then
-                echo "Include ${APACHE_CONF}" >> "$_pf"
-                log "Added Include to $_pf"
-            else
-                log "Include already in $_pf"
-            fi
-        else
-            log "Apache proxy config not found: $_pf"
+        if [ -f "$_pf" ] && ! grep -q "apache-netbird.conf" "$_pf"; then
+            echo "Include ${APACHE_CONF}" >> "$_pf"
+            log "Added Include to $_pf"
         fi
     done
 
-    # Reload Apache
-    if [ -x /usr/local/apache/bin/apache_proxy ]; then
-        /usr/local/apache/bin/apache_proxy -k graceful 2>>"$SVCLOG"
-        log "Apache reloaded via apache_proxy"
-    elif [ -x /etc/init.d/thttpd.sh ]; then
+    # Reload web servers
+    if [ -x /etc/init.d/thttpd.sh ]; then
         /etc/init.d/thttpd.sh reload 2>>"$SVCLOG"
-        log "Apache reloaded via thttpd.sh"
-    else
-        log "WARNING: Could not find Apache reload command"
+        log "Reloaded thttpd"
+    fi
+    if [ -x /etc/init.d/stunnel.sh ]; then
+        /etc/init.d/stunnel.sh reload 2>>"$SVCLOG"
+        log "Reloaded stunnel"
     fi
 
-    # CGI symlink (this path works - confirmed by service log)
+    # CGI symlink (confirmed working on this NAS)
     ln -sf "${QPKG_ROOT}/web/cgi-bin/netbird-api.cgi" /home/httpd/cgi-bin/netbird-api.cgi
     if [ -L /home/httpd/cgi-bin/netbird-api.cgi ]; then
         log "CGI symlink OK"
@@ -83,27 +93,22 @@ AEOF
 }
 
 teardown_webui() {
-    # Remove Apache config
+    # Remove drop-in proxy config
+    rm -f /etc/container-proxy.d/netbird.conf 2>/dev/null
     rm -f "$APACHE_CONF"
 
     # Remove Include lines from Apache proxy configs
     for _pf in /etc/config/apache/extra/apache-proxy.conf /etc/default_config/apache/extra/apache-proxy.conf; do
-        if [ -f "$_pf" ]; then
-            sed -i '/apache-netbird\.conf/d' "$_pf" 2>/dev/null
-        fi
+        [ -f "$_pf" ] && sed -i '/apache-netbird\.conf/d' "$_pf" 2>/dev/null
     done
 
-    # Reload Apache
-    if [ -x /usr/local/apache/bin/apache_proxy ]; then
-        /usr/local/apache/bin/apache_proxy -k graceful 2>/dev/null
-    elif [ -x /etc/init.d/thttpd.sh ]; then
-        /etc/init.d/thttpd.sh reload 2>/dev/null
-    fi
+    # Reload web servers
+    [ -x /etc/init.d/thttpd.sh ] && /etc/init.d/thttpd.sh reload 2>/dev/null
+    [ -x /etc/init.d/stunnel.sh ] && /etc/init.d/stunnel.sh reload 2>/dev/null
 
     # Remove CGI symlink and stale web root symlinks
     rm -f /home/httpd/cgi-bin/netbird-api.cgi
     rm -f /home/Qhttpd/Web/netbird 2>/dev/null
-    rm -f "/share/$(/sbin/getcfg SHARE_DEF defWeb -d Qweb -f /etc/config/def_share.info 2>/dev/null)/netbird" 2>/dev/null
 }
 
 start_service() {
