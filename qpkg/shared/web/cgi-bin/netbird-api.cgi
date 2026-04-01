@@ -47,7 +47,7 @@ do_save() {
     LF=$(json_val "$BODY" "LOG_FILE")
     EA=$(json_val "$BODY" "EXTRA_ARGS")
 
-    cat > "$NETBIRD_CONF" <<CONF
+    if cat > "$NETBIRD_CONF" <<CONF
 # Netbird VPN Configuration for QNAP
 # Managed by the Netbird web UI. Manual edits are preserved on save.
 
@@ -59,8 +59,11 @@ LOG_LEVEL="$LL"
 LOG_FILE="$LF"
 EXTRA_ARGS="$EA"
 CONF
-
-    json_response '{"ok":true}'
+    then
+        json_response '{"ok":true}'
+    else
+        json_response '{"ok":false,"error":"Failed to write config file"}'
+    fi
 }
 
 # Get service status

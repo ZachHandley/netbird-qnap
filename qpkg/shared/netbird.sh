@@ -132,6 +132,7 @@ start_service() {
     fi
 
     export_nb_env
+    export HOME="${QPKG_ROOT}"
 
     _log_file="${NB_LOG_FILE:-/var/log/netbird.log}"
     _log_level="${NB_LOG_LEVEL:-info}"

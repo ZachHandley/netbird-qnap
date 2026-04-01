@@ -25,6 +25,7 @@ pkg_post_install() {
         fi
     fi
 
+    chmod 666 "${QPKG_ROOT}/netbird.conf" 2>/dev/null
     mkdir -p /etc/netbird 2>/dev/null
     /sbin/log_tool -t1 -uSystem -p127.0.0.1 -mlocalhost -a "Netbird VPN QPKG installed"
 }
